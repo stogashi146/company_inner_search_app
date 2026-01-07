@@ -13,7 +13,7 @@ import sys
 import unicodedata
 from dotenv import load_dotenv
 import streamlit as st
-from docx import Document
+from langchain_core.documents import Document
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
@@ -127,13 +127,21 @@ def initialize_retriever():
         chunk_overlap=ct.CHUNK_OVERLAP,
         separator="\n"
     )
-
-    # チャンク分割を実施
-    splitted_docs = text_splitter.split_documents(docs_all)
+        
+    splitted_docs = []
+    for doc in docs_all:
+        source = doc.metadata.get("source", "")
+        if source.endswith(".csv"):
+            splitted_docs.append(doc)
+            print(doc)
+        else:
+            splitted_docs.extend(text_splitter.split_documents([doc]))
 
     # ベクターストアの作成
     db = Chroma.from_documents(splitted_docs, embedding=embeddings)
-
+    print("==============")
+    print(db._collection)
+    print("==============")
     # ベクターストアを検索するRetrieverの作成
     st.session_state.retriever = db.as_retriever(search_kwargs={"k": ct.RETRIEVAL_K})
 
@@ -217,8 +225,11 @@ def file_load(path, docs_all):
         # ファイルの拡張子に合ったdata loaderを使ってデータ読み込み
         loader = ct.SUPPORTED_EXTENSIONS[file_extension](path)
         docs = loader.load()
+        if file_extension == ".csv" and len(docs) > 1:
+            combined_content = "\n\n=========".join([doc.page_content for doc in docs])
+            combined_metadata = docs[0].metadata.copy()
+            docs = [Document(page_content=combined_content, metadata=combined_metadata)]
         docs_all.extend(docs)
-
 
 def adjust_string(s):
     """
